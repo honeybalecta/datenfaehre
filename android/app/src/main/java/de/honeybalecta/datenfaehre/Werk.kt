@@ -31,6 +31,7 @@ import java.io.OutputStream
 import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import java.util.UUID
 
 /** Ein Eintrag der Warteschlange. Fortschritt und Status sind beobachtbar. */
 class Auftrag(
@@ -105,6 +106,10 @@ object Werk {
     var schluesselFrage by mutableStateOf<UnbekannterSchluessel?>(null)
     var klartextFrage by mutableStateOf(false)
     private var wartend: Serverprofil? = null
+    private var wartendSpeichern = false
+
+    /** Schnellverbindung: Zugangsdaten nach erfolgreicher Anmeldung im Servermanager ablegen. */
+    var schnellSpeichern by mutableStateOf(true)
 
     var vorhanden by mutableStateOf(Vorhanden.UEBERSCHREIBEN)
     var versteckt by mutableStateOf(false)
@@ -127,6 +132,7 @@ object Werk {
         lokalPfad = prefs.getString("lokalPfad", null) ?: speicherWurzel
         vorhanden = runCatching { Vorhanden.valueOf(prefs.getString("vorhanden", "") ?: "") }.getOrDefault(Vorhanden.UEBERSCHREIBEN)
         versteckt = prefs.getBoolean("versteckt", false)
+        schnellSpeichern = prefs.getBoolean("schnellSpeichern", true)
         zeigeSchnell = prefs.getBoolean("zeigeSchnell", true)
         zeigeLog = prefs.getBoolean("zeigeLog", true)
         zeigeSchlange = prefs.getBoolean("zeigeSchlange", true)
@@ -137,6 +143,7 @@ object Werk {
             .putString("lokalPfad", lokalPfad)
             .putString("vorhanden", vorhanden.name)
             .putBoolean("versteckt", versteckt)
+            .putBoolean("schnellSpeichern", schnellSpeichern)
             .putBoolean("zeigeSchnell", zeigeSchnell)
             .putBoolean("zeigeLog", zeigeLog)
             .putBoolean("zeigeSchlange", zeigeSchlange)
@@ -170,11 +177,32 @@ object Werk {
         Tresor.speichern(app, neu)
     }
 
+    /** Legt die Zugangsdaten einer Schnellverbindung als Eintrag an oder frischt den passenden Eintrag auf. */
+    private fun profilMerken(p: Serverprofil): Serverprofil {
+        val alt = profile.firstOrNull {
+            it.host.equals(p.host, ignoreCase = true) && it.portOderStandard == p.portOderStandard &&
+                it.benutzer == p.benutzer && it.protokoll == p.protokoll
+        }
+        if (alt != null) {
+            val neu = alt.copy(passwort = p.passwort, fingerabdruck = p.fingerabdruck)
+            if (neu != alt) {
+                profileSpeichern(profile.map { if (it.id == alt.id) neu else it })
+                meldung(LogArt.STATUS, "Gespeicherte Zugangsdaten für „${neu.name}“ aktualisiert")
+            }
+            return neu
+        }
+        val name = if (profile.none { it.name == p.host }) p.host else "${p.benutzer.ifBlank { "anonym" }}@${p.host}"
+        val neu = p.copy(id = UUID.randomUUID().toString(), name = name)
+        profileSpeichern(profile + neu)
+        meldung(LogArt.STATUS, "Zugangsdaten als „$name“ im Servermanager gespeichert")
+        return neu
+    }
+
     private fun bekannt(p: Serverprofil): String = prefs.getString("fp_${p.host}:${p.portOderStandard}", "") ?: ""
 
     // ───────────────────────────── Verbindung ─────────────────────────────
 
-    fun verbinden(roh: Serverprofil) {
+    fun verbinden(roh: Serverprofil, speichern: Boolean = false) {
         if (roh.host.isBlank()) {
             meldung(LogArt.FEHLER, "Kein Server angegeben")
             return
@@ -188,17 +216,20 @@ object Werk {
             try {
                 val start = withContext(Dispatchers.IO) { sperre.withLock { v.verbinden() } }
                 verbindung = v
-                aktiv = profil
                 verbunden = true
                 fernVerlauf.clear()
                 meldung(LogArt.STATUS, "Angemeldet")
-                if (profil.lokalesVerzeichnis.isNotBlank()) lokalOeffnen(profil.lokalesVerzeichnis)
-                fernOeffnen(profil.startverzeichnis.ifBlank { start })
+                val gemerkt = if (speichern && profil.id.isEmpty()) profilMerken(profil) else profil
+                aktiv = gemerkt
+                if (gemerkt.lokalesVerzeichnis.isNotBlank()) lokalOeffnen(gemerkt.lokalesVerzeichnis)
+                fernOeffnen(gemerkt.startverzeichnis.ifBlank { start })
             } catch (e: UnbekannterSchluessel) {
                 wartend = profil
+                wartendSpeichern = speichern
                 schluesselFrage = e
             } catch (e: KeinTls) {
                 wartend = profil
+                wartendSpeichern = speichern
                 klartextFrage = true
                 meldung(LogArt.FEHLER, fehlertext(e))
             } catch (e: Exception) {
@@ -226,7 +257,7 @@ object Werk {
         if (neu.id.isNotEmpty() && profile.any { it.id == neu.id }) {
             profileSpeichern(profile.map { if (it.id == neu.id) it.copy(fingerabdruck = neu.fingerabdruck) else it })
         }
-        verbinden(neu)
+        verbinden(neu, wartendSpeichern)
     }
 
     fun klartextBestaetigen(ja: Boolean) {
@@ -238,7 +269,7 @@ object Werk {
             meldung(LogArt.FEHLER, "Herstellen der Verbindung zum Server fehlgeschlagen")
             return
         }
-        verbinden(p.copy(protokoll = Protokoll.FTP))
+        verbinden(p.copy(protokoll = Protokoll.FTP), wartendSpeichern)
     }
 
     fun trennen() {

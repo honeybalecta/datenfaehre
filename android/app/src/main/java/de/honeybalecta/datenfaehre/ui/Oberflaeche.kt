@@ -51,7 +51,9 @@ import androidx.compose.ui.unit.sp
 import de.honeybalecta.datenfaehre.Auftrag
 import de.honeybalecta.datenfaehre.LogArt
 import de.honeybalecta.datenfaehre.Pfad
+import de.honeybalecta.datenfaehre.Protokoll
 import de.honeybalecta.datenfaehre.Richtung
+import de.honeybalecta.datenfaehre.Serverprofil
 import de.honeybalecta.datenfaehre.Status
 import de.honeybalecta.datenfaehre.Werk
 import de.honeybalecta.datenfaehre.groesseText
@@ -75,7 +77,7 @@ fun Oberflaeche(zugriff: Boolean, onZugriff: () -> Unit) {
                 Werkzeugleiste(onManager = { manager = true }, onEinstellungen = { einstellungen = true })
                 Linie()
                 if (Werk.zeigeSchnell) {
-                    Schnellverbindung(breit)
+                    Schnellverbindung(breit, onManager = { manager = true })
                     Linie()
                 }
                 if (Werk.zeigeLog) Nachrichten(Modifier.fillMaxWidth().height(if (breit) 64.dp else 78.dp))
@@ -190,8 +192,32 @@ private fun Werkzeugleiste(onManager: () -> Unit, onEinstellungen: () -> Unit) {
 
 // ───────────────────────────── Schnellverbindung ─────────────────────────────
 
+/** Auswahlliste neben „Verbinden“: gespeicherte Server, Schalter fürs Speichern, Servermanager. */
 @Composable
-private fun Schnellverbindung(breit: Boolean) {
+private fun Serverliste(onWahl: (Serverprofil) -> Unit, onManager: () -> Unit) {
+    var offen by remember { mutableStateOf(false) }
+    Box {
+        Box(
+            Modifier.size(30.dp).background(Fz.Knopf).border(1.dp, Fz.KnopfRand).clickable { offen = true }
+                .semantics { contentDescription = "Gespeicherte Server" },
+            contentAlignment = Alignment.Center
+        ) { Symbol(Sym.PFEIL_UNTEN, Modifier.size(16.dp)) }
+        val server = Werk.profile.map { p -> Punkt(p.name.ifBlank { p.host }, true) { onWahl(p) } }
+        Kontextmenue(
+            offen, { offen = false },
+            server.ifEmpty { listOf(Punkt("Noch keine gespeicherten Server", false) {}) } + listOf(
+                Punkt((if (Werk.schnellSpeichern) "☑" else "☐") + " Zugangsdaten beim Verbinden speichern", true) {
+                    Werk.schnellSpeichern = !Werk.schnellSpeichern
+                    Werk.merke()
+                },
+                Punkt("Servermanager öffnen", true) { onManager() }
+            )
+        )
+    }
+}
+
+@Composable
+private fun Schnellverbindung(breit: Boolean, onManager: () -> Unit) {
     var host by remember { mutableStateOf("") }
     var benutzer by remember { mutableStateOf("") }
     var passwort by remember { mutableStateOf("") }
@@ -201,8 +227,21 @@ private fun Schnellverbindung(breit: Boolean) {
         if (p == null) {
             Werk.meldung(LogArt.FEHLER, "Serveradresse fehlt oder ist ungültig (erlaubt: host, sftp://, ftp://, ftps://, ftpes://)")
         } else {
-            Werk.verbinden(p)
+            Werk.verbinden(p, Werk.schnellSpeichern)
         }
+    }
+    val waehle = { p: Serverprofil ->
+        val schema = when (p.protokoll) {
+            Protokoll.SFTP -> "sftp://"
+            Protokoll.FTP -> "ftp://"
+            Protokoll.FTPS -> "ftpes://"
+            Protokoll.FTPS_IMPLIZIT -> "ftps://"
+        }
+        host = schema + p.host
+        benutzer = p.benutzer
+        passwort = p.passwort
+        port = p.portOderStandard.toString()
+        Werk.verbinden(p)
     }
     if (breit) {
         Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -216,6 +255,7 @@ private fun Schnellverbindung(breit: Boolean) {
             Feld(port, { port = it.filter(Char::isDigit).take(5) }, Modifier.width(56.dp), typ = KeyboardType.Number, onLos = los)
             Spacer(Modifier.width(8.dp))
             Knopf("Verbinden", onClick = los)
+            Serverliste(waehle, onManager)
         }
     } else {
         Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 3.dp)) {
@@ -233,6 +273,7 @@ private fun Schnellverbindung(breit: Boolean) {
                 Feld(port, { port = it.filter(Char::isDigit).take(5) }, Modifier.width(52.dp), typ = KeyboardType.Number, onLos = los)
                 Spacer(Modifier.width(6.dp))
                 Knopf("Verbinden", onClick = los)
+                Serverliste(waehle, onManager)
             }
         }
     }

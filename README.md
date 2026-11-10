@@ -11,7 +11,9 @@ lokale Ansicht und Server-Ansicht, darunter die Warteschlange.
   Umbenennen, Löschen, Aktualisieren).
 - **Schnellverbindung**: `sftp://host`, `ftp://host` (unverschlüsselt), `ftps://host` (implizites TLS), `ftpes://host` (explizites TLS).
   Ohne Angabe: Port 22 bedeutet SFTP, sonst FTP über TLS.
-- **Servermanager**: gespeicherte Zugänge; Passwörter liegen verschlüsselt im Android-Schlüsselspeicher.
+- **Gespeicherte Server**: Die Schnellverbindung legt Zugangsdaten nach erfolgreicher Anmeldung im Servermanager ab
+  (abschaltbar über den Pfeil neben „Verbinden“); derselbe Pfeil listet die gespeicherten Server zum direkten Verbinden.
+  Passwörter liegen verschlüsselt im Android-Schlüsselspeicher.
 - **Warteschlange**: Reiter für offene, fehlgeschlagene und erfolgreiche Übertragungen; langes Drücken für Abarbeiten,
   Anhalten, Erneut versuchen und Leeren. Übertragungen laufen im Hintergrund weiter.
 - Unbekannte Zertifikate und Serverschlüssel werden mit Fingerabdruck zur Bestätigung vorgelegt und danach gemerkt.
